@@ -1,12 +1,16 @@
 Package: proxzyme
-Title: What the Package Does (One Line, Title Case)
+Title: Package for Processing Proxzyme Absorbance Data
 Version: 0.0.0.9000
 Authors@R: 
-    person("First", "Last", , "first.last@example.com", role = c("aut", "cre"),
-           comment = c(ORCID = "YOUR-ORCID-ID"))
-Description: What the package does (one paragraph).
-License: `use_mit_license()`, `use_gpl3_license()` or friends to pick a
-    license
+    person("Bailey", "Morgan", , "bmthalia@gmail.com", role = c("aut", "cre"),
+           comment = c(ORCID = "0000-0002-4615-2355"))
+Description: This package contains several functions that will process raw data from
+    .csv files, peroform a set of calculations, plot the results from the calculations,
+    and perform statistical tests on the results.
+License: MIT + file LICENSE
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.2.2
+Depends: 
+    R (>= 2.10)
+LazyData: true
