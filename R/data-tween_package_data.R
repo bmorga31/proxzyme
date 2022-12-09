@@ -1,7 +1,7 @@
 #' Proxzyme Reaction with Various Tween Concentrations
 #'
 #' Absorbance reads from 1 to 32 minutes of Proxzyme reaction with TMB substrate.
-#' There were four DNA treatments and six buffer/reaction conditions.
+#' There were four DNA conditions and six buffer treatments/reaction conditions.
 #'
 #' @format a data frame with 66 rows and 14 columns
 #' \describe{
