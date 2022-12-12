@@ -50,7 +50,8 @@ plot_maker <- function(df, bar.chart = FALSE, plot.time = NULL,
                     position = position_dodge()) +
       facet_wrap(vars(time)) +
       scale_y_continuous(name = "Absorbance due to DNA at 655 nm") +
-      scale_x_discrete(name = "Treatment Group") #edit so that they don't overlap
+      scale_x_discrete(name = "Treatment Group") +
+      theme(axis.text.x = element_text(angle = 45, hjust=1))
 
   } else {
     plot <- ggplot(no_no_dna) +
@@ -59,7 +60,8 @@ plot_maker <- function(df, bar.chart = FALSE, plot.time = NULL,
                         color = dna), width = 0.5) +
       facet_wrap(vars(time)) +
       scale_y_continuous(name = "Absorbance due to DNA at 655 nm") +
-      scale_x_discrete(name = "Treatment Group") #edit so that they don't overlap
+      scale_x_discrete(name = "Treatment Group") +
+      theme(axis.text.x = element_text(angle = 45, hjust=1))
 
   }
 
@@ -69,7 +71,7 @@ plot_maker <- function(df, bar.chart = FALSE, plot.time = NULL,
   }
 
   if(!is.null(save.fn)) {
-    ggsave(save.fn, width = 6, height = 4, dpi = 300)
+    ggsave(save.fn, width = 10, height = 10, dpi = 300)
 
   }
   plot
