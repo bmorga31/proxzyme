@@ -1,0 +1,250 @@
+---
+title: "proxzyme_vignette"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{proxzyme_vignette}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+# Introduction
+
+This package is for the use of analyzing proxzyme absorbance data using four functions that will process the raw data to make it usable in R, perform the calculations needed to standardize the data, graph that data, and lastly, perform statistical tests on the data.
+
+```{r setup}
+library(proxzyme)
+```
+
+The following packages are needed to run the functions:
+
+```{r, message=FALSE}
+library(tidyverse)
+library(dplyr)
+```
+
+## Preprocess Proxzyme
+
+This function must be used before any of the others in order for the data to be in a form compatible with the following functions.
+
+The proper format to call the function is `preprocess_proxzyme(raw.fn, key.fn)` where `raw.fn` and `key.fn` are paths to the raw data csv file and the corresponding plate key csv file.
+
+First, this function reads the raw data file `raw.fn`, and uses `pivot_longer` to put each observation in its own row. The resulting data frame will have four columns: time, row, column.number, and absorbance. The function also reads the second input, the plate key file path `key.fn`. Next, the data frames are joined so that each absorbance value has a corresponding DNA condition and buffer or reaction treatment.
+
+```{r}
+preprocess_proxzyme <- function(raw.fn, key.fn) {
+  raw_data <- read_csv(raw.fn) %>%
+    pivot_longer(cols = 3:14, 
+                 names_to = "column.number",
+                 values_to = "absorbance")
+  
+  plate_key <- read_csv(key.fn) %>%
+    mutate(col = as.character(col)) 
+  
+  new_data <- left_join(raw_data, plate_key, 
+                        by = c("row" = "row", "column.number" = "col"))
+  
+  new_data
+}
+```
+
+The function returns the joined data frame. From here, the data is in a form in which R can use functions like `group_by()`, `filter()`, etc., which are necessary for all following functions.
+
+## Minus Background
+
+This function accounts for the background reaction and gives the absorbance due to DNA. This function does this in one of two ways, as determined by the user. If the user specifies a reference time `ref.time = x`, the No DNA condition of each treatment at that time is subtracted from other DNA conditions for each time. If no reference time is specified by the user, `ref.time = NULL` and the function will subtract the No DNA condition for each treatment from the other DNA conditions at each time.
+
+The function is called using `minus_bg(df, ref.time = x)` , where `df` is the name of the data frame created by `preprocess_proxzyme()` (here, `new_data`), and the reference time is determined by the user and is the time at which the reaction has progressed the most since the previous time.
+
+`mutate` is used to add the column containing the corrected absorbancce, and then the mean and standard deviation (sd) are calculated for each time/DNA/treatment combination, regardless of whether or not there was a reference time. This can be used by `plot_maker` later.
+
+```{r}
+minus_bg <- function(df, ref.time = NULL) {
+  
+  if(is.null(ref.time)) {
+    blank_corrected<- df %>%
+      group_by(time, treatment) %>% 
+      mutate(abs.minus.bg = absorbance - mean(absorbance[dna == "No DNA"]))
+    
+  } else {
+    ref_points <- df %>%
+      filter(time == ref.time, dna == "No DNA") %>%
+      group_by(treatment) %>%
+      summarize(ref.mean = mean(absorbance))
+    blank_corrected <- left_join(df, ref_points, 
+                                 by = ("treatment" = "treatment")) %>%
+                       mutate(abs.minus.bg = absorbance - ref.mean)
+  } 
+  
+  abs_minus_bg <- blank_corrected %>%
+    group_by(time, dna, treatment) %>% 
+    mutate(mean = mean(abs.minus.bg), std = sd(absorbance))
+}
+```
+
+This function returns the data frame `abs_minus_bg` (absorbance minus background), which is the input for `plot_maker` and `anova`, so those two functions do not have to be run in any particular order.
+
+## Plot Maker
+
+This function must be done after `minus_bg`, but can be done before or after `anova`.
+
+This function uses the output from `minus_bg` to generate a plot using `ggplot` and lets the user determine:
+
+-   what kind of plot should be made,
+
+    -   `bar.chart = TRUE` for a bar chart
+
+    -   `bar.chart = FALSE` for a scatter plot, default
+
+-   which times should be plotted,
+
+    -   `plot.time = NULL` for all time points, default
+
+    -   `plot.time = x` for a single time point
+
+    -   `plot.time = c(x, y, …)` for two or more time points
+
+-   whether the plot will show in R after being made (`TRUE`)
+
+-   and whether the plot will be saved
+
+    -   `save.fn` must be in quotes " " and contain the path to the location where the plot image will be saved to (unless you want it to go to the project folder), the name of the image and the type (jpeg, png, etc.)
+
+The function with all inputs as default is `plot_maker(df, bar.chart = FALSE, plot.time = NULL, print.plot = TRUE, save.fn = NULL)`.
+
+First, the function filters out all of the points with the No DNA condition. Then, it filters the time points based on what the user specified. Then it makes the type of plot that the user specified.
+
+```{r}
+plot_maker <- function(df, bar.chart = FALSE, plot.time = NULL,
+                       print.plot = TRUE, save.fn = NULL) {
+
+  #the no DNA condition is still present in the data frame, but isn't necessary
+  #for the plot so it can be filtered out
+  no_no_dna <- df %>%
+    filter(dna != "No DNA")
+
+  if(!is.null(plot.time)) {
+    no_no_dna <- no_no_dna %>%
+      filter(time %in% plot.time)
+  }
+
+  if(bar.chart) {
+    no_no_dna2 <- no_no_dna 
+    no_no_dna2$treatment <- factor(no_no_dna2$treatment) 
+    plot <- ggplot(no_no_dna2, aes(x = treatment, y = mean, fill = dna)) +
+      geom_bar(stat = "identity", position = position_dodge()) +
+      geom_errorbar(aes(ymin = mean - std, ymax = mean + std),
+                    position = position_dodge()) +
+      facet_wrap(vars(time)) +
+      scale_y_continuous(name = "Absorbance due to DNA at 655 nm") +
+      scale_x_discrete(name = "Treatment Group") +
+      theme(axis.text.x = element_text(angle = 45, hjust=1))
+
+  } else {
+    plot <- ggplot(no_no_dna) +
+      geom_point(aes(x = treatment, y = abs.minus.bg, color = dna)) +
+      geom_errorbar(aes(x = treatment, y = abs.minus.bg, 
+                        ymin = mean, ymax = mean,
+                        color = dna), width = 0.5) +
+      facet_wrap(vars(time)) +
+      scale_y_continuous(name = "Absorbance due to DNA at 655 nm") +
+      scale_x_discrete(name = "Treatment Group") +
+      theme(axis.text.x = element_text(angle = 45, hjust=1))
+  }
+
+  if(print.plot) {
+    print(plot)
+  }
+
+  if(!is.null(save.fn)) {
+    ggsave(save.fn, width = 6, height = 4, dpi = 300)
+  }
+  plot
+}
+```
+
+This function returns the object `plot`, which will not be visible to the user unless `print.plot = TRUE`, which it is by default. This is for quick reference to the plot that is generated, so that the user can decide if it is the most appropriate choice before saving. Even if the user changes it to FALSE, the object is still in the environment.
+
+## ANOVA
+
+The final function runs an analysis of variance (ANOVA, or aov) on a data frame. This can be done with the output of `preprocess_proxzyme`, and may be useful in some instances (see Example section below), but it is recommended that is be used with the output of `minus_bg`.
+
+The inputs are the data frame and the time which you would like to look at, and the DNA condition you would like to compare:
+
+`anova(df, stat.time = NULL, stat.dna = "ssDNA T")`.
+
+There must be a specific `stat.time` indicated or else there will be an error message. The default for `stat.dna` is the ssDNA T condition, but any of the others may be substituted. These inputs are necessary so that the function can `filter` the data.
+
+```{r}
+anova <- function(df, stat.time = NULL, stat.dna = "ssDNA T") {
+
+  timepoint <- df %>%
+    filter(time == stat.time, dna == stat.dna)
+
+  mod <- lm(absorbance ~ treatment, data = timepoint)
+  summary(mod)
+  tuk <- TukeyHSD(aov(mod))
+  print(tuk)
+}
+```
+
+This function returns a table containing p values (among other things) that can be used to show significance of results.
+
+# Example
+
+An example of how these functions can be used together is given here:
+
+```{r}
+new_data <- preprocess_proxzyme(
+  raw.fn = "~/Desktop/MICR_475/proxzyme_data_processor/data/102522_Ec_V7_effect_of_tween_on_bg.csv", 
+  key.fn = "~/Desktop/MICR_475/proxzyme_data_processor/data/plate_key.csv")
+
+new_data
+```
+
+```{r}
+minus_bg_20 <- minus_bg(new_data, ref.time = 20)
+minus_bg_20
+```
+
+```{r}
+plot_maker(minus_bg_20, bar.chart = FALSE, plot.time = c(4, 8, 20),
+           print.plot = TRUE)
+```
+
+or...
+
+```{r}
+plot_maker(minus_bg_20, bar.chart = TRUE, plot.time = 20,
+           print.plot = TRUE)
+```
+
+or...
+
+```{r}
+plot_maker(minus_bg_20, bar.chart = FALSE, print.plot = TRUE)
+```
+
+```{r}
+stats <- anova(minus_bg_20, stat.time = 20)
+stats
+```
+
+```{r}
+test <- anova(new_data, stat.time = 8, stat.dna = "P2 only")
+```
+
+Or, more simply...
+
+```{r}
+data <- preprocess_proxzyme(
+  raw.fn = "~/Desktop/MICR_475/proxzyme_data_processor/data/101322_Ec_V7_Proxzyme_Mg_and_EDTA_concentrations.csv", key.fn = "~/Desktop/MICR_475/proxzyme_data_processor/data/101322_plate_key.csv") %>%
+  minus_bg(ref.time = NULL) %>%
+  plot_maker(plot.time = c(6, 20))
+```
